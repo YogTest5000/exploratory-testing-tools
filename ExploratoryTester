@@ -1,0 +1,247 @@
+import sys
+import json
+
+def apply_stylesheet(app):
+    app.setStyleSheet("""
+        QWidget {
+            font-family: 'Segoe UI';
+            font-size: 12pt;
+        }
+
+        QTabWidget::pane {
+            border: 1px solid #ccc;
+            padding: 5px;
+        }
+
+        QTabBar::tab {
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            padding: 8px 20px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            margin-right: 2px;
+        }
+
+        QTabBar::tab:selected {
+            background: #ffffff;
+            font-weight: bold;
+            color: #007acc;
+        }
+
+        QPushButton {
+            background-color: #007acc;
+            color: white;
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+        }
+
+        QPushButton:hover {
+            background-color: #005f9e;
+        }
+
+        QTableWidget {
+            border: 1px solid #ccc;
+            gridline-color: #ccc;
+            selection-background-color: #cce5ff;
+        }
+
+        QHeaderView::section {
+            background-color: #e0e0e0;
+            padding: 4px;
+            border: 1px solid #ccc;
+            font-weight: bold;
+        }
+
+        QLineEdit {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 4px 8px;
+        }
+
+        QLabel {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        QVBoxLayout, QHBoxLayout {
+            margin: 8px;
+        }
+    """)
+
+from PyQt5.QtWidgets import (
+    QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout,
+    QTabWidget, QTableWidget, QTableWidgetItem, QPushButton,
+    QFileDialog, QLabel, QLineEdit
+)
+from openpyxl import load_workbook, Workbook
+
+
+class ExcelTableTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.table = QTableWidget(10, 5)
+        self.table.setHorizontalHeaderLabels([f"Column {i+1}" for i in range(5)])
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.addWidget(self.table)
+
+        button_layout = QHBoxLayout()
+        load_button = QPushButton("Load from Excel")
+        save_button = QPushButton("Save to Excel")
+        load_button.clicked.connect(self.load_from_excel)
+        save_button.clicked.connect(self.save_to_excel)
+
+        button_layout.addWidget(load_button)
+        button_layout.addWidget(save_button)
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+    def load_from_excel(self):
+        file_name, _ = QFileDialog.getOpenFileName(self, "Open Excel File", "", "Excel Files (*.xlsx)")
+        if file_name:
+            wb = load_workbook(file_name)
+            ws = wb.active
+            self.table.setRowCount(ws.max_row)
+            self.table.setColumnCount(ws.max_column)
+
+            for row in ws.iter_rows():
+                for cell in row:
+                    value = str(cell.value) if cell.value is not None else ""
+                    self.table.setItem(cell.row - 1, cell.column - 1, QTableWidgetItem(value))
+
+    def save_to_excel(self):
+        file_name, _ = QFileDialog.getSaveFileName(self, "Save Excel File", "", "Excel Files (*.xlsx)")
+        if file_name:
+            if not file_name.endswith(".xlsx"):
+                file_name += ".xlsx"
+            wb = Workbook()
+            ws = wb.active
+            for row in range(self.table.rowCount()):
+                for col in range(self.table.columnCount()):
+                    item = self.table.item(row, col)
+                    ws.cell(row=row + 1, column=col + 1, value=item.text() if item else "")
+            wb.save(file_name)
+
+
+class CSVUploadTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.selected_file = QLineEdit()
+        self.selected_file.setReadOnly(True)
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        file_layout = QHBoxLayout()
+        file_button = QPushButton("Browse CSV")
+        file_button.clicked.connect(self.browse_file)
+        file_layout.addWidget(self.selected_file)
+        file_layout.addWidget(file_button)
+
+        action_button = QPushButton("Process CSV File")
+        action_button.clicked.connect(self.process_file)
+
+        layout.addLayout(file_layout)
+        layout.addWidget(action_button)
+        self.setLayout(layout)
+
+    def browse_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select CSV File", "", "CSV Files (*.csv)")
+        if file_path:
+            self.selected_file.setText(file_path)
+
+    def process_file(self):
+        file_path = self.selected_file.text()
+        if file_path:
+            print(f"Selected CSV file: {file_path}")
+
+class KeyValueTab(QWidget):
+    def __init__(self, tab_name="Key-Value Table"):
+        super().__init__()
+        self.setObjectName(tab_name)
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels(["Key", "Value"])
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        layout.addWidget(self.table)
+
+        # Buttons: Add, Remove, Load JSON
+        button_layout = QHBoxLayout()
+        add_button = QPushButton("Add Row")
+        remove_button = QPushButton("Remove Selected Row")
+        load_json_button = QPushButton("Load from JSON")
+
+        add_button.clicked.connect(self.add_row)
+        remove_button.clicked.connect(self.remove_row)
+        load_json_button.clicked.connect(self.load_from_json)
+
+        button_layout.addWidget(add_button)
+        button_layout.addWidget(remove_button)
+        button_layout.addWidget(load_json_button)
+
+        layout.addLayout(button_layout)
+        self.setLayout(layout)
+
+    def add_row(self):
+        self.table.insertRow(self.table.rowCount())
+
+    def remove_row(self):
+        selected_rows = sorted(set(index.row() for index in self.table.selectedIndexes()), reverse=True)
+        for row in selected_rows:
+            self.table.removeRow(row)
+
+    def load_from_json(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open JSON File", "", "JSON Files (*.json)")
+        if file_path:
+            try:
+                with open(file_path, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+
+                if isinstance(data, dict):
+                    self.table.setRowCount(0)  # Clear existing rows
+                    for key, value in data.items():
+                        row = self.table.rowCount()
+                        self.table.insertRow(row)
+                        self.table.setItem(row, 0, QTableWidgetItem(str(key)))
+                        self.table.setItem(row, 1, QTableWidgetItem(str(value)))
+                else:
+                    print("JSON structure is not a dictionary")
+            except Exception as e:
+                print(f"Failed to load JSON: {e}")
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("PyQt5 Desktop App with Key-Value Tabs")
+        self.setGeometry(100, 100, 800, 600)
+        self.init_ui()
+
+    def init_ui(self):
+        tabs = QTabWidget()
+        tabs.addTab(ExcelTableTab(), "Excel Table")
+        tabs.addTab(CSVUploadTab(), "CSV Upload")
+
+        # Add Tab 3 to Tab 8 as Key-Value tabs
+        for i in range(3, 9):
+            tabs.addTab(KeyValueTab(f"Tab {i}"), f"Tab {i}")
+
+        self.setCentralWidget(tabs)
+
+
+def main():
+    app = QApplication(sys.argv)
+    apply_stylesheet(app)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
