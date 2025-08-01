@@ -1,0 +1,57 @@
+import pandas as pd
+from datetime import datetime
+from bokeh.plotting import figure, curdoc
+from bokeh.models import ColumnDataSource, DateRangeSlider, HoverTool
+from bokeh.layouts import column
+
+# Read CSV file
+df = pd.read_csv("data.csv", parse_dates=["datetime"])
+df = df.sort_values("datetime")
+
+# Create initial ColumnDataSource
+source = ColumnDataSource(data=df)
+
+# Create Bokeh figure
+p = figure(title="Temperature Over Time",
+           x_axis_type='datetime',
+           width=800,
+           height=400,
+           tools="pan,wheel_zoom,box_zoom,reset")
+
+# Add hover tool
+hover = HoverTool(
+    tooltips=[
+        ("Datetime", "@datetime{%F %H:%M}"),
+        ("Temperature", "@temperature{0.0} °C")
+    ],
+    formatters={
+        "@datetime": "datetime",
+    },
+    mode='vline'
+)
+
+p.add_tools(hover)
+
+# Plot line
+p.line(x='datetime', y='temperature', source=source, line_width=2)
+
+# Create DateRangeSlider
+range_slider = DateRangeSlider(
+    title="Select Date Range",
+    start=df['datetime'].min(),
+    end=df['datetime'].max(),
+    value=(df['datetime'].min(), df['datetime'].max()),
+    step=1000 * 60 * 60  # 1 hour in milliseconds
+)
+
+# Callback function to update data based on slider
+def update(attr, old, new):
+    start, end = range_slider.value_as_datetime
+    filtered_df = df[(df['datetime'] >= start) & (df['datetime'] <= end)]
+    source.data = ColumnDataSource.from_df(filtered_df)
+
+range_slider.on_change('value', update)
+
+# Add layout to the document
+curdoc().add_root(column(range_slider, p))
+curdoc().title = "Datetime Range Selector with Hover"
