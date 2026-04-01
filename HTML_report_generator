@@ -1,0 +1,440 @@
+import sys
+import os
+import html
+import re
+from datetime import datetime
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout,
+    QTextEdit, QPushButton, QFileDialog, QMessageBox, QLabel
+)
+from PyQt5.QtCore import Qt
+
+
+class HtmlReportGenerator(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("HTML Report Generator")
+        self.setGeometry(200, 150, 1000, 750)
+        self.init_ui()
+        self.apply_styles()
+
+    def init_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        layout = QVBoxLayout()
+
+        self.title_label = QLabel(
+            "Enter text using tags: [System], [LogAnalysis], [Zone1], [Zone2], [Zone3], [Damper Position 30%]"
+        )
+        self.title_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.title_label)
+
+        self.text_area = QTextEdit()
+        self.text_area.setPlaceholderText(
+            "Example:\n\n"
+            "[System]\nSystem summary...\n\n"
+            "[LogAnalysis]\nLog analysis notes...\n\n"
+            "[Zone1]\nZone 1 details...\n\n"
+            "[Zone2]\nZone 2 details...\n\n"
+            "[Zone3]\nZone 3 details...\n\n"
+            "[Damper Position 30%]\n"
+            "[Damper Position 65%]\n"
+            "[Damper Position 90%]"
+        )
+        layout.addWidget(self.text_area)
+
+        self.generate_button = QPushButton("Generate HTML Report")
+        self.generate_button.clicked.connect(self.generate_html_report)
+        layout.addWidget(self.generate_button)
+
+        central_widget.setLayout(layout)
+
+    def apply_styles(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f4f6f8;
+            }
+            QLabel {
+                font-size: 17px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 12px;
+            }
+            QTextEdit {
+                background-color: white;
+                border: 2px solid #dcdfe3;
+                border-radius: 10px;
+                padding: 12px;
+                font-size: 14px;
+                color: #2c3e50;
+            }
+            QTextEdit:focus {
+                border: 2px solid #4a90e2;
+            }
+            QPushButton {
+                background-color: #4a90e2;
+                color: white;
+                font-size: 15px;
+                font-weight: bold;
+                padding: 12px;
+                border: none;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+            QPushButton:pressed {
+                background-color: #2d6ca2;
+            }
+        """)
+
+    def extract_sections(self, text):
+        sections = {
+            "System": "",
+            "LogAnalysis": "",
+            "Zone1": "",
+            "Zone2": "",
+            "Zone3": ""
+        }
+
+        pattern = (
+            r"\[(System|LogAnalysis|Zone1|Zone2|Zone3)\]"
+            r"(.*?)(?=\[(?:System|LogAnalysis|Zone1|Zone2|Zone3)\]|\[Damper\s+Position\s+\d{1,3}%\]|$)"
+        )
+
+        matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+
+        for section_name, content in matches:
+            normalized_name = self.normalize_section_name(section_name)
+            cleaned_content = content.strip()
+
+            if sections[normalized_name]:
+                sections[normalized_name] += "\n\n" + cleaned_content
+            else:
+                sections[normalized_name] = cleaned_content
+
+        return sections
+
+    def normalize_section_name(self, name):
+        name_lower = name.strip().lower()
+        mapping = {
+            "system": "System",
+            "loganalysis": "LogAnalysis",
+            "zone1": "Zone1",
+            "zone2": "Zone2",
+            "zone3": "Zone3"
+        }
+        return mapping.get(name_lower, name)
+
+    def extract_damper_positions(self, text):
+        """
+        Finds tags like:
+        [Damper Position 30%]
+        [Damper Position 75%]
+        [Damper Position 100%]
+
+        Returns exactly 3 damper items.
+        Missing entries are filled with 0%.
+        """
+        pattern = r"\[Damper\s+Position\s+(\d{1,3})%\]"
+        matches = re.findall(pattern, text, re.IGNORECASE)
+
+        dampers = []
+        for index, value in enumerate(matches[:3], start=1):
+            percent = max(0, min(100, int(value)))
+            dampers.append({
+                "label": f"Damper {index}",
+                "value": percent,
+                "highlight": True
+            })
+
+        while len(dampers) < 3:
+            dampers.append({
+                "label": f"Damper {len(dampers) + 1}",
+                "value": 0,
+                "highlight": False
+            })
+
+        return dampers
+
+    def format_text(self, text):
+        if not text.strip():
+            return "<em>No Data</em>"
+        return html.escape(text).replace("\n", "<br>")
+
+    def build_damper_chart_html(self, damper):
+        percent = damper["value"]
+        degrees = int((percent / 100) * 360)
+        highlight_class = "damper-card highlight" if damper["highlight"] else "damper-card"
+
+        return f"""
+        <div class="{highlight_class}">
+            <div class="damper-title">{html.escape(damper["label"])}</div>
+            <div class="pie-wrapper">
+                <div class="pie-chart" style="background: conic-gradient(#4a90e2 0deg {degrees}deg, #e6edf5 {degrees}deg 360deg);">
+                    <div class="pie-center">{percent}%</div>
+                </div>
+            </div>
+            <div class="damper-status">Position: {percent}%</div>
+        </div>
+        """
+
+    def build_html_report(self, sections, dampers):
+        current_time = datetime.now().strftime("%B %d, %Y %I:%M %p")
+
+        system_text = self.format_text(sections["System"])
+        log_analysis_text = self.format_text(sections["LogAnalysis"])
+        zone1_text = self.format_text(sections["Zone1"])
+        zone2_text = self.format_text(sections["Zone2"])
+        zone3_text = self.format_text(sections["Zone3"])
+
+        damper_charts_html = "\n".join(
+            self.build_damper_chart_html(damper) for damper in dampers
+        )
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Structured HTML Report</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #eef2f7, #d9e4f5);
+            margin: 0;
+            padding: 0;
+            color: #2c3e50;
+        }}
+        .container {{
+            max-width: 1150px;
+            margin: 35px auto;
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            overflow: hidden;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #4a90e2, #357abd);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }}
+        .header h1 {{
+            margin: 0;
+            font-size: 32px;
+        }}
+        .header p {{
+            margin-top: 10px;
+            font-size: 14px;
+            opacity: 0.95;
+        }}
+        .section {{
+            padding: 24px 30px;
+            border-bottom: 1px solid #e8edf3;
+        }}
+        .section h2 {{
+            margin-top: 0;
+            margin-bottom: 14px;
+            font-size: 22px;
+        }}
+        .content-box {{
+            padding: 18px;
+            border-radius: 10px;
+            line-height: 1.8;
+            font-size: 15px;
+            word-wrap: break-word;
+            white-space: normal;
+        }}
+        .system {{
+            background: #f3e5f5;
+            border-left: 6px solid #8e44ad;
+        }}
+        .log-analysis {{
+            background: #ede7f6;
+            border-left: 6px solid #5e35b1;
+        }}
+        .zone1 {{
+            background: #e3f2fd;
+            border-left: 6px solid #1e88e5;
+        }}
+        .zone2 {{
+            background: #e8f5e9;
+            border-left: 6px solid #43a047;
+        }}
+        .zone3 {{
+            background: #fff3e0;
+            border-left: 6px solid #fb8c00;
+        }}
+        .damper-section {{
+            background: #f8fafc;
+        }}
+        .damper-grid {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+            justify-content: space-between;
+            margin-top: 16px;
+        }}
+        .damper-card {{
+            flex: 1 1 280px;
+            min-width: 260px;
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            border: 2px solid #dfe7f0;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+            text-align: center;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }}
+        .damper-card.highlight {{
+            border: 3px solid #4a90e2;
+            box-shadow: 0 0 0 4px rgba(74, 144, 226, 0.15), 0 8px 22px rgba(74, 144, 226, 0.22);
+            transform: scale(1.02);
+        }}
+        .damper-title {{
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 18px;
+            color: #2c3e50;
+        }}
+        .pie-wrapper {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 16px;
+        }}
+        .pie-chart {{
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }}
+        .pie-center {{
+            width: 88px;
+            height: 88px;
+            border-radius: 50%;
+            background: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 22px;
+            font-weight: bold;
+            color: #2c3e50;
+            box-shadow: inset 0 0 6px rgba(0,0,0,0.08);
+        }}
+        .damper-status {{
+            font-size: 15px;
+            color: #4b5b6a;
+            font-weight: 600;
+        }}
+        .footer {{
+            text-align: center;
+            padding: 18px;
+            font-size: 13px;
+            color: #6c7a89;
+            background: #f1f5f9;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Structured HTML Report</h1>
+            <p>Generated on {current_time}</p>
+        </div>
+
+        <div class="section">
+            <h2>System</h2>
+            <div class="content-box system">{system_text}</div>
+        </div>
+
+        <div class="section">
+            <h2>Log Analysis</h2>
+            <div class="content-box log-analysis">{log_analysis_text}</div>
+        </div>
+
+        <div class="section">
+            <h2>Zone 1</h2>
+            <div class="content-box zone1">{zone1_text}</div>
+        </div>
+
+        <div class="section">
+            <h2>Zone 2</h2>
+            <div class="content-box zone2">{zone2_text}</div>
+        </div>
+
+        <div class="section">
+            <h2>Zone 3</h2>
+            <div class="content-box zone3">{zone3_text}</div>
+        </div>
+
+        <div class="section damper-section">
+            <h2>Damper</h2>
+            <div class="damper-grid">
+                {damper_charts_html}
+            </div>
+        </div>
+
+        <div class="footer">
+            Generated by PyQt5 HTML Report Generator
+        </div>
+    </div>
+</body>
+</html>"""
+
+    def generate_html_report(self):
+        user_text = self.text_area.toPlainText().strip()
+
+        if not user_text:
+            QMessageBox.warning(
+                self,
+                "Input Error",
+                "Please enter some text before generating the report."
+            )
+            return
+
+        sections = self.extract_sections(user_text)
+        dampers = self.extract_damper_positions(user_text)
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save HTML Report",
+            "report.html",
+            "HTML Files (*.html)"
+        )
+
+        if not save_path:
+            return
+
+        if not save_path.lower().endswith(".html"):
+            save_path += ".html"
+
+        html_content = self.build_html_report(sections, dampers)
+
+        try:
+            with open(save_path, "w", encoding="utf-8") as file:
+                file.write(html_content)
+
+            QMessageBox.information(
+                self,
+                "Success",
+                f"HTML report generated successfully.\n\nSaved at:\n{os.path.abspath(save_path)}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to save HTML report.\n\nError: {str(e)}"
+            )
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = HtmlReportGenerator()
+    window.show()
+    sys.exit(app.exec_())
